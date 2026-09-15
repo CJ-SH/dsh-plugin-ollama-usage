@@ -1,0 +1,19 @@
+# dsh-plugin-ollama-usage bundle patch: one new loader row.
+#
+# The plugin owns its configuration through the `ollama-usage` settings namespace and
+# resolves its credential through the credentials seam, so this row carries no config —
+# there is nothing here for a user to edit. Finish setup from
+# Settings → Plugins → Plugin configuration.
+- insert:
+    - id: ollama-usage
+      name: 'dsh-plugin-ollama-usage'
+
+# `connection.rpc.handle` implements every channel as a web route registered on the Context
+# that *reads* the connection service, and the shipped `connection` row injects only
+# `webRuntime` — so registering a channel throws `cannot get property "webServer" without
+# inject` for every consumer. Widen that row's inject list. `inject` is a whole-value
+# override, so the shipped entries must be restated verbatim.
+- id: connection
+  inject:
+    - webRuntime
+    - webServer
