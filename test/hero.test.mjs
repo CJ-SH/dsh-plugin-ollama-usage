@@ -74,12 +74,17 @@ const caught = []
 const services = {
   slots: { inject: (key, callback) => callback(), register: (options, component) => { caught.push({ options, component }); return () => undefined } },
   locale: { getLocale: () => ({ active: 'zh' }) },
-  connection: { rpc: { async call(channel, endpoint) { return endpoint === 'usage/read' ? { ok: true, value: USAGE } : { ok: true, value: { status: 'none' } } } } },
+  // The route is reached with `fetch`; one answered read is all this harness needs.
+  placeholder: null,
+}
+globalThis.fetch = async (input) => {
+  const endpoint = new URL(String(input)).pathname.slice('/ollama-usage/'.length)
+  const value = endpoint === 'usage/read' ? USAGE : { status: 'none' }
+  return { ok: true, status: 200, json: async () => ({ ok: true, value }) }
 }
 const ctx = {
   slots: services.slots,
   locale: services.locale,
-  connection: services.connection,
   effect: (callback) => callback(),
   timeout: () => () => undefined,
   interval: () => () => undefined,

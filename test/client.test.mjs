@@ -62,7 +62,7 @@ const exported = factory((request) => {
 })
 check('bundle requires only react', required, ['react'])
 check('bundle exports apply + inject', [typeof exported.apply, Array.isArray(exported.inject)], ['function', true])
-check('declared services', exported.inject, ['slots', 'locale', 'connection', 'timer'])
+check('declared services', exported.inject, ['slots', 'locale', 'timer'])
 
 // --- Fake cordis context ----------------------------------------------------------------
 const injected = []
@@ -81,7 +81,7 @@ const services = {
     },
   },
   locale: { getLocale: () => ({ active: 'zh' }) },
-  connection: { rpc: { call: async () => ({ ok: true, value: { status: 'none' } }) } },
+  // No `connection` service: the browser half fetches the Host's own route.
   timer: { interval: () => () => undefined },
 }
 const ctx = {
@@ -153,9 +153,9 @@ check('endpoint set is the expected six', handled, [
   'credential/unset',
   'usage/read',
 ])
-check('client and host agree on the channel', [
-  clientSource.includes("const CHANNEL = '/ollama-usage'"),
-  hostSource.includes("const CHANNEL = '/ollama-usage'"),
+check('client and host agree on the route prefix', [
+  clientSource.includes("const ROUTE_PREFIX = '/ollama-usage'"),
+  hostSource.includes("const ROUTE_PREFIX = '/ollama-usage'"),
 ], [true, true])
 check('client and host agree on the namespace', [
   clientSource.includes("const NS = 'ollama-usage'"),

@@ -70,41 +70,38 @@ const calls = []
 const services = {
   slots: { inject: (key, callback) => callback(), register: (options, component) => { services.slots.caught.push({ options, component }); return () => undefined }, caught: [] },
   locale: { getLocale: () => ({ active: 'zh' }) },
-  connection: {
-    rpc: {
-      async call(channel, endpoint, payload) {
-        calls.push(endpoint)
-        // The wire envelope requires every field, `payload` included: the host validates
-        // `{type, rpcId, method, payload}` and rejects a body that omits one. A call without a
-        // payload is exactly the bug that kept the settings card stuck on "读取中…".
-        if (payload === undefined) throw new Error(`gateway/bad-request: invalid client-request message (${endpoint} sent no payload)`)
-        if (endpoint === 'config/read') {
-          return {
-            ok: true,
-            value: {
-              available: true,
-              registered: true,
-              writable: true,
-              value: { baseURL: 'https://ollama.com', credentialMode: 'reference', apiKeyEnv: 'OLLAMA_API_KEY' },
-              revision: 0,
-              ref: 'OLLAMA_API_KEY',
-              endpoint: 'https://ollama.com/api/usage',
-              error: null,
-            },
-          }
-        }
-        if (endpoint === 'credential/describe') {
-          return { ok: true, value: { mode: 'reference', ref: 'OLLAMA_API_KEY', owned: false, configured: true, writable: true, source: 'file', error: null } }
-        }
-        return { ok: true, value: { status: 'none' } }
-      },
-    },
-  },
 }
+
+// Every request carries a JSON body — an omitted one is exactly the bug that once kept the
+// settings card stuck on "读取中…", so the harness refuses to answer without it.
+const replied = (value) => ({ ok: true, status: 200, json: async () => ({ ok: true, value }) })
+globalThis.fetch = async (input, init) => {
+  const endpoint = new URL(String(input)).pathname.slice('/ollama-usage/'.length)
+  calls.push(endpoint)
+  if (init === undefined || typeof init.body !== 'string') {
+    throw new Error(`bad-request: ${endpoint} sent no body`)
+  }
+  if (endpoint === 'config/read') {
+    return replied({
+      available: true,
+      registered: true,
+      writable: true,
+      value: { baseURL: 'https://ollama.com', credentialMode: 'reference', apiKeyEnv: 'OLLAMA_API_KEY' },
+      revision: 0,
+      ref: 'OLLAMA_API_KEY',
+      endpoint: 'https://ollama.com/api/usage',
+      error: null,
+    })
+  }
+  if (endpoint === 'credential/describe') {
+    return replied({ mode: 'reference', ref: 'OLLAMA_API_KEY', owned: false, configured: true, writable: true, source: 'file', error: null })
+  }
+  return replied({ status: 'none' })
+}
+
 const ctx = {
   slots: services.slots,
   locale: services.locale,
-  connection: services.connection,
   effect: (callback) => callback(),
   timeout: () => () => undefined,
   interval: () => () => undefined,
