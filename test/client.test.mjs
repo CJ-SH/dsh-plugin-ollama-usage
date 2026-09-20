@@ -106,7 +106,7 @@ exported.apply(ctx)
 
 check('claims exactly the three seats', injected, [
   'conversation.composer.dock',
-  'shell.overlay',
+  'conversation.input.dock',
   'settings.plugin.item',
 ])
 check('registered three entries', registrations.length, 3)
@@ -115,9 +115,13 @@ const bySlot = Object.fromEntries(registrations.map((entry) => [entry.options.na
 check('dock seat: slot name', bySlot['conversation.composer.dock'].name, 'conversation.composer.dock')
 check('dock seat: cell id', bySlot['conversation.composer.dock'].id, 'ollama-usage')
 check('dock seat: order', bySlot['conversation.composer.dock'].order, 1)
-check('overlay seat: slot name', bySlot['shell.overlay'].name, 'shell.overlay')
-check('overlay seat: cell id', bySlot['shell.overlay'].id, 'ollama-usage-hero')
-check('overlay seat: order', bySlot['shell.overlay'].order, 1)
+// The hero surface is no longer a measured `shell.overlay` box: it is the composer's own flow
+// row, the same seat the sibling statusline plugin uses. The id keeps the `-hero` suffix because
+// that is the state it serves.
+check('hero seat: slot name', bySlot['conversation.input.dock'].name, 'conversation.input.dock')
+check('hero seat: cell id', bySlot['conversation.input.dock'].id, 'ollama-usage-hero')
+check('hero seat: order', bySlot['conversation.input.dock'].order, 1)
+check('the measured overlay seat is gone', bySlot['shell.overlay'], undefined)
 check('settings seat: slot name', bySlot['settings.plugin.item'].name, 'settings.plugin.item')
 check('settings seat: key is the namespace', bySlot['settings.plugin.item'].key, 'ollama-usage')
 check(
@@ -130,7 +134,21 @@ check('stylesheet injected once', styleTags.length, 1)
 check('stylesheet is tagged with the plugin', styleTags[0].dataset.plugin, 'ollama-usage-client')
 check('stylesheet carries the pill rules', styleTags[0].textContent.includes('.ollama-usage-pill'), true)
 check('stylesheet carries the panel rules', styleTags[0].textContent.includes('.ollama-usage-panel'), true)
-check('stylesheet covers the hero anchor mode', styleTags[0].textContent.includes('[data-mode="anchored"]') || styleTags[0].textContent.includes('.ollama-usage-hero'), true)
+// Both surfaces are flow rows now, so the hero has no anchor/fixed mode left to style.
+check('stylesheet has no hero overlay rules left', [
+  styleTags[0].textContent.includes('.ollama-usage-hero'),
+  styleTags[0].textContent.includes('[data-mode='),
+  styleTags[0].textContent.includes('.ollama-usage-dock[data-flow="true"]'),
+], [false, false, true])
+// The hero row shares the composer's input-dock line with the sibling statusline pill: the row is
+// content-sized and the seat anchor (inline `display:contents`) is overridden into a wrapping row.
+check('the hero row shares the composer dock line', [
+  /\.ollama-usage-dockline\{[^}]*display:inline-flex/.test(styleTags[0].textContent),
+  // The panel's own window rows own `.ollama-usage-row`, so the hero row must not reuse it.
+  /\.ollama-usage-dockline\{[^}]*flex-direction:column/.test(styleTags[0].textContent),
+  /\[data-slot="conversation\.input\.dock"\]\{[^}]*display:flex !important/.test(styleTags[0].textContent),
+  /\[data-slot="conversation\.input\.dock"\]\{[^}]*flex-flow:row wrap/.test(styleTags[0].textContent),
+], [true, false, true, true])
 
 const settle = effects.find((entry) => String(entry.label).includes('stylesheet'))
 check('stylesheet disposer removes the tag', (() => {

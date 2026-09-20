@@ -275,7 +275,7 @@ check('client bundle registers a loader factory', clientSource.includes('window.
 check('client bundle id equals the package name', clientSource.includes(`id: '${packageJson.name}'`), true)
 check('client bundle exports apply + inject', [clientSource.includes('exports.apply = apply'), clientSource.includes('exports.inject = inject')], [true, true])
 check('client exports the composer dock seat', clientSource.includes('conversation.composer.dock'), true)
-check('client exports the frame overlay seat', clientSource.includes("'shell.overlay'"), true)
+check('client exports the composer hero dock seat', clientSource.includes("'conversation.input.dock'"), true)
 check('client exports the plugin settings card seat', clientSource.includes('settings.plugin.item'), true)
 check('client bundle requests only baseline modules', /require\((?!'react')/.test(clientSource), false)
 check('manifest declares the client bundle', packageJson.exports['./client'], './lib/client.js')

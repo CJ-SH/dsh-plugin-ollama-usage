@@ -17,7 +17,7 @@
 | 位置 | 席位 |
 |---|---|
 | 活动会话输入框下方 | `conversation.composer.dock`（id `ollama-usage`, order 1） |
-| 新会话（hero） | `shell.overlay`（id `ollama-usage-hero`, order 1） |
+| 新会话（hero） | `conversation.input.dock`（id `ollama-usage-hero`, order 1，输入卡片上方那行；与 statusline 的任务 pill 同行） |
 | 设置 → 插件 → 插件配置 | `settings.plugin.item`（key `ollama-usage`） |
 
 面板同时显示两个窗口，各自带占比；数据默认每 5 分钟刷新一次。
@@ -105,9 +105,9 @@ patch 只插入自己的一行。Host 半在组合的 `webServer` 上注册**自
 lib/index.js    Host 半：设置命名空间、凭据 seam、/usage 取数、自有的 /ollama-usage 路由
 lib/client.js   Client 半：三处 UI（module-loader bundle 形式，仅依赖基线 react）
 test/host.test.mjs    自检：注册、栅栏/方法/媒体类型/请求体、信封、凭据边界、空态（44 条断言）
-test/client.test.mjs  自检：席位、样式生命周期、跨半边契约（27 条断言）
+test/client.test.mjs  自检：席位、样式生命周期、跨半边契约（29 条断言）
 test/card.test.mjs    自检：设置卡片（10 条断言）
-test/hero.test.mjs    自检：hero 悬浮件（6 条断言）
+test/hero.test.mjs    自检：hero 行（6 条断言）
 cordis.patch.yml  安装时合入 profile 的 loader 行（不覆盖任何别的行）
 ```
 
@@ -117,7 +117,7 @@ cordis.patch.yml  安装时合入 profile 的 loader 行（不覆盖任何别的
 ## 自检
 
 ```bash
-npm test        # 四个 harness，共 87 条断言，无需测试框架
+npm test        # 四个 harness，共 89 条断言，无需测试框架
 ```
 
 - **host.test.mjs**：用假 cordis ctx 挂载 Host 半并断言行为 —— 注册的命名空间与路由、
@@ -128,7 +128,8 @@ npm test        # 四个 harness，共 87 条断言，无需测试框架
 - **client.test.mjs**：通过假 `window.__ModuleLoader__` 加载真实 bundle 并挂载到假 ctx —— 断言
   三个席位（**槽名与 id/key 分离**，这正是原型期踩过的坑）、order、样式标签的注入与回收、
   以及**跨半边契约**（客户端调用的每个 endpoint 在 Host 都有对应分支，路由前缀与命名空间两边一致）。
-- **card.test.mjs** / **hero.test.mjs**：设置卡片与 hero 面板的渲染、交互与卸载（请求走假 `fetch`）。
+- **card.test.mjs** / **hero.test.mjs**：设置卡片与 hero 行的渲染、交互与卸载（请求走假 `fetch`）；
+  hero 的相位规则（"dock 行挂载时 hero 行不出现"）由后者钉住。
 
 ## 故障排查
 
