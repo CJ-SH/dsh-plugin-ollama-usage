@@ -1,20 +1,25 @@
 {
   "name": "dsh-plugin-ollama-usage",
   "version": "0.1.0",
-  "description": "Ollama Cloud account usage in the composer dock, the new-session overlay, and a Plugin configuration card.",
+  "description": "Show Ollama Cloud account usage in the conversation, and configure its baseURL and credential mode.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
     "lib",
+    "locale",
+    "icon.svg",
     "cordis.patch.yml",
+    "tools",
     "README.md",
     "LICENSE"
   ],
+  "icon": "./icon.svg",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
@@ -34,6 +39,7 @@
     "url": "git+https://github.com/CJ-SH/dsh-plugin-ollama-usage.git"
   },
   "scripts": {
+    "link-imports": "node tools/link-imports.mjs",
     "test": "node test/host.test.mjs && node test/client.test.mjs && node test/card.test.mjs && node test/hero.test.mjs"
   },
   "dsh": {
@@ -43,10 +49,15 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-renderer"
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-settings"
       ]
     }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": "^0.2.0-rc.1",
+    "@deepseek-ai/schemastery": "*"
   }
 }

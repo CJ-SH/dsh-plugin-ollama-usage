@@ -1,9 +1,12 @@
 # dsh-plugin-ollama-usage bundle patch: one new loader row.
 #
-# The plugin owns its configuration through the `ollama-usage` settings namespace and
-# resolves its credential through the credentials seam, so this row carries no config —
-# there is nothing here for a user to edit. Finish setup from
-# Settings → Plugins → Plugin configuration.
+# This row's configuration is its own `Config` (exported by lib/index.js), so on dsh 0.2 the
+# settings namespace **is** the row id `ollama-usage` and the values live in the profile patch
+# (`~/.dsh/profiles/<profile>/cordis.patch.yml`) — not in the removed `settings.yaml`, and not in a
+# namespace this bundle registers. The row is inserted **without** a `config:` key on purpose: every
+# field of the schema has a default, so a fresh install needs no configuration to activate, and the
+# plugin's own save path writes the user's values into the profile patch via `settings.update`
+# (`ns` = this row id). Configure it from the Plugins page or the plugin's own card.
 #
 # No other bundle's row is touched. The Host half registers its own route on the composition's
 # `webServer` (`POST /ollama-usage/<endpoint>`) and asks `connection` for the trust fence per

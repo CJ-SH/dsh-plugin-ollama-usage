@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Ollama 用量",
+    "description": "在对话页显示 Ollama Cloud 账户用量，并配置 baseURL 与凭据模式。"
+  }
+}

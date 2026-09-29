@@ -68,7 +68,13 @@ const exported = factory((request) => {
 // --- Fake context: the replies are the ones the live channel really returns ---------------
 const calls = []
 const services = {
-  slots: { inject: (key, callback) => callback(), register: (options, component) => { services.slots.caught.push({ options, component }); return () => undefined }, caught: [] },
+  // Real `slots.inject` semantics: the callback runs only while the slot is declared. No hub is
+  // declared here, so the card lands on this plugin's own Settings page.
+  slots: {
+    inject: (key, callback) => (key === 'plugin-suite.panel' ? () => undefined : callback()),
+    register: (options, component) => { services.slots.caught.push({ options, component }); return () => undefined },
+    caught: [],
+  },
   locale: { getLocale: () => ({ active: 'zh' }) },
 }
 
@@ -109,7 +115,7 @@ const ctx = {
 }
 
 exported.apply(ctx)
-const configCard = services.slots.caught.find((entry) => entry.options.name === 'settings.plugin.item')
+const configCard = services.slots.caught.find((entry) => entry.options.name === 'settings.section')
 check('caught the settings card component', typeof configCard?.component, 'function')
 
 // --- Drive the card ------------------------------------------------------------------------

@@ -72,7 +72,12 @@ const exported = factory((request) => {
 const USAGE = { status: 'ok', usage: { fetchedAt: '2026-09-14T10:00:00.000Z', session: { usage: 0.2, models: [] }, weekly: { usage: 0.9, models: [] } } }
 const caught = []
 const services = {
-  slots: { inject: (key, callback) => callback(), register: (options, component) => { caught.push({ options, component }); return () => undefined } },
+  // Real `slots.inject` semantics: the callback runs only while the slot is declared, so the hub
+  // slot stays pending here and the two dock seats below are what this harness observes.
+  slots: {
+    inject: (key, callback) => (key === 'plugin-suite.panel' ? () => undefined : callback()),
+    register: (options, component) => { caught.push({ options, component }); return () => undefined },
+  },
   locale: { getLocale: () => ({ active: 'zh' }) },
   // The route is reached with `fetch`; one answered read is all this harness needs.
   placeholder: null,
