@@ -9,10 +9,10 @@ a `baseURL` / credential-mode configuration.
 ## Features
 
 - Shows one panel below the composer in the active session and another on the new-session (hero) page; both carry the same content.
-- Reports both the `session` (5-hour rolling) and `weekly` windows as percentages, refreshed every 5 minutes by default.
+- Reports the `session` (5-hour rolling) and `weekly` windows as percentages, refreshed every 5 minutes by default; credit-plan accounts report a monthly window instead.
 - Read-only account usage: it touches no provider configuration and starts no conversations.
 - Supports two modes: reusing an existing Ollama key, or using a plugin-specific key.
-- When credentials are missing, the endpoint does not offer usage, or the response is malformed, the panel disappears silently — no placeholder, no error.
+- When credentials are missing, the endpoint does not offer usage, or the request fails, the panel disappears silently — no placeholder, no error. Only a `200` whose shape cannot be read is called out on the Settings page.
 
 ## Installation
 
@@ -68,7 +68,8 @@ dsh plugin --profile web remove dsh-plugin-ollama-usage
 ## Technical notes
 
 - Two credential modes: **credential mode** (`reference`, the default) reuses an existing `apiKeyEnv` (default `OLLAMA_API_KEY`) and this plugin cannot write to it; **key mode** (`direct`) writes only its own reference, `OLLAMA_USAGE_API_KEY`.
-- The usage endpoint currently returns only window names, with no reset timestamps, so the panel renders rolling semantics (reset every 5 hours / every 7 days / every 30 days); if the endpoint ever returns `resets_at`, it will switch to absolute times automatically.
+- Quota comes from `GET {baseURL}/api/balance` (`Authorization: Bearer <key>`): legacy plans report `remaining_percent` and `resets_at` for `session`/`weekly`, and the panel shows the **used** percentage and the **absolute** reset time; credit plans report a monthly allowance balance and are shown as a monthly window.
+- Since 2026-10 `/api/usage` returns only per-day request / cost / token buckets and **no per-model breakdown** (the official API has no successor endpoint for it).
 - The slots and containers are dsh-internal contracts and a dsh upgrade may move them; a panel that does not render is itself the failure mode (no placeholder, no error).
 - Settings and credentials survive uninstall; remove the `- id: ollama-usage` block from the profile patch by hand if you want them gone.
 

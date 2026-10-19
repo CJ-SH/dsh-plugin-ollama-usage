@@ -69,7 +69,7 @@ const exported = factory((request) => {
   throw new Error(`unexpected require("${request}")`)
 })
 
-const USAGE = { status: 'ok', usage: { fetchedAt: '2026-09-14T10:00:00.000Z', session: { usage: 0.2, models: [] }, weekly: { usage: 0.9, models: [] } } }
+const USAGE = { status: 'ok', usage: { fetchedAt: '2026-09-14T10:00:00.000Z', session: { usage: 0.2 }, weekly: { usage: 0.9 } } }
 const caught = []
 const services = {
   // Real `slots.inject` semantics: the callback runs only while the slot is declared, so the hub

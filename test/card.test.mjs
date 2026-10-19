@@ -95,14 +95,15 @@ globalThis.fetch = async (input, init) => {
       value: { baseURL: 'https://ollama.com', credentialMode: 'reference', apiKeyEnv: 'OLLAMA_API_KEY' },
       revision: 0,
       ref: 'OLLAMA_API_KEY',
-      endpoint: 'https://ollama.com/api/usage',
+      endpoint: 'https://ollama.com/api/balance',
       error: null,
     })
   }
   if (endpoint === 'credential/describe') {
     return replied({ mode: 'reference', ref: 'OLLAMA_API_KEY', owned: false, configured: true, writable: true, source: 'file', error: null })
   }
-  return replied({ status: 'none' })
+  // The host reports the one failure that used to be invisible; the card must name it.
+  return replied({ status: 'unrecognised' })
 }
 
 const ctx = {
@@ -191,6 +192,7 @@ check('it rendered the baseURL field', body.includes('baseURL'), true)
 check('it rendered the credential mode labels', body.includes('凭据模式') && body.includes('密钥模式'), true)
 check('it reported the credential as configured', body.includes('已配置'), true)
 check('it did not report a read failure', body.includes('无法读取配置'), false)
+check('an unreadable endpoint shape is named, not hidden', body.includes('无法识别的用量格式'), true)
 
 const failed = results.filter((entry) => !entry.ok)
 for (const entry of results) {

@@ -282,7 +282,7 @@ check('config: no field hides a nested volatile marker',
 // --- Host half: config over the route ----------------------------------------------------
 const read = await call('config/read', {})
 check('config/read ok', [read.ok, read.value.registered, read.value.ref, read.value.revision], [true, true, 'OLLAMA_API_KEY', 3])
-check('endpoint derived from baseURL', read.value.endpoint, 'https://ollama.com/api/usage')
+check('endpoint derived from baseURL', read.value.endpoint, 'https://ollama.com/api/balance')
 
 // The live document is normalised where it is consumed: the old hand-rolled schema used to do this
 // at registration, and that hook no longer exists.
@@ -293,7 +293,7 @@ check('config/read normalises junk from the live document', junk.value.value, {
   credentialMode: 'reference',
   apiKeyEnv: 'OLLAMA_API_KEY',
 })
-check('the normalised value drives the endpoint and the reference', [junk.value.endpoint, junk.value.ref], ['https://x.test/api/usage', 'OLLAMA_API_KEY'])
+check('the normalised value drives the endpoint and the reference', [junk.value.endpoint, junk.value.ref], ['https://x.test/api/balance', 'OLLAMA_API_KEY'])
 document.value = { baseURL: 'https://ollama.com', credentialMode: 'reference', apiKeyEnv: 'OLLAMA_API_KEY' }
 
 // `describe()` failing must not take the configuration surface down: the loader row's own layer
@@ -306,7 +306,7 @@ services.settings.describe = liveDescribe
 check('a failed live read falls back to the row config layer',
   [degraded.value.value, degraded.value.endpoint, degraded.value.ref, degraded.value.available, degraded.value.registered, degraded.value.error],
   [{ baseURL: 'https://row.example', credentialMode: 'direct', apiKeyEnv: 'ROW_LAYER_KEY' },
-    'https://row.example/api/usage', 'OLLAMA_USAGE_API_KEY', true, false, 'settings document unavailable'])
+    'https://row.example/api/balance', 'OLLAMA_USAGE_API_KEY', true, false, 'settings document unavailable'])
 
 // --- Host half: the write path ----------------------------------------------------------
 const saved = await call('config/save', { patch: { baseURL: 'https://saved.test', credentialMode: 'reference', apiKeyEnv: 'SAVED_KEY' }, expectedRevision: 3 })
@@ -345,7 +345,7 @@ const cleared = await call('credential/unset', {})
 check('credential/unset clears the plugin-owned ref', [cleared.value.ok, credentialCalls.at(-1).ref], [true, 'OLLAMA_USAGE_API_KEY'])
 document.value.credentialMode = 'reference'
 
-// --- Host half: silent empty states (R5) ------------------------------------------------
+// --- Host half: empty states, and the contract that replaced the silent failure (R4/R5) ---
 const withCredentials = services.credentials
 delete services.credentials
 check('usage/read without credentials service', (await call('usage/read', {})).value, { status: 'none' })
@@ -359,24 +359,87 @@ const realFetch = globalThis.fetch
 globalThis.fetch = async () => new Response('not found', { status: 404 })
 check('usage/read against an endpoint without usage', (await call('usage/read', {})).value, { status: 'unsupported' })
 
-globalThis.fetch = async () =>
-  new Response(
-    JSON.stringify({
-      limits: {
-        session: { usage: 0.259, models: [{ name: 'deepseek-v4.1-flash', request_count: 505 }] },
-        weekly: { usage: 0.057, models: [] },
-      },
-    }),
-    { status: 200, headers: { 'content-type': 'application/json' } },
-  )
-const decoded = (await call('usage/read', {})).value
-check('usage/read decodes status', decoded.status, 'ok')
-check('usage/read decodes a window', decoded.usage.session, { usage: 0.259, models: [{ name: 'deepseek-v4.1-flash', requestCount: 505 }] })
-check('usage/read keeps the present windows only', Object.keys(decoded.usage).sort(), ['fetchedAt', 'session', 'weekly'])
-check('usage/read carries no key', JSON.stringify(decoded).includes('sk-x'), false)
+/** A 200 the way the endpoint answers one. */
+const jsonResponse = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+
+// The legacy plan branch. Percentages are what is LEFT, everything this plugin shows is what was
+// USED, and the reset instants the old /api/usage never carried are finally present.
+globalThis.fetch = async () => jsonResponse({
+  included: {
+    session: { remaining_percent: 96.01, resets_at: '2026-10-12T03:00:00Z' },
+    weekly: { remaining_percent: 99.29, resets_at: '2026-10-19T00:00:00Z' },
+  },
+  purchased: { balance_usd: 0 },
+})
+const legacy = (await call('usage/read', {})).value
+check('balance legacy: decoded status', legacy.status, 'ok')
+check('balance legacy: remaining is inverted into used, with no float noise',
+  [legacy.usage.session.usage, legacy.usage.weekly.usage], [0.0399, 0.0071])
+check('balance legacy: reset instants travel to the browser half',
+  [legacy.usage.session.resetsAt, legacy.usage.weekly.resetsAt], ['2026-10-12T03:00:00.000Z', '2026-10-19T00:00:00.000Z'])
+check('balance legacy: windows only — the per-model list has no source any more',
+  Object.keys(legacy.usage).sort(), ['fetchedAt', 'session', 'weekly'])
+check('balance legacy: carries no key', JSON.stringify(legacy).includes('sk-x'), false)
+
+// The credit branch: no windows at all, so it lands on `monthly` with the period end as its reset.
+globalThis.fetch = async () => jsonResponse({
+  included: { balance_usd: 8, allowance_usd: 10, period: { from: '2026-10-01T00:00:00Z', until: '2026-11-01T00:00:00Z' } },
+  purchased: { balance_usd: 0 },
+})
+const credit = (await call('usage/read', {})).value
+check('balance credit: decoded status', credit.status, 'ok')
+check('balance credit: spends the allowance and reports a monthly window',
+  [credit.usage.monthly.usage, credit.usage.monthly.resetsAt], [0.2, '2026-11-01T00:00:00.000Z'])
+check('balance credit: no session/weekly window is invented', Object.keys(credit.usage).sort(), ['fetchedAt', 'monthly'])
+
+// Anti-false-green. The two payload shapes this plugin has actually met in the wild, and can no
+// longer read, must be REPORTED — silently answering `none` is exactly what hid the 2026-10
+// outage for a month. The log is deduped per shape, so the repeated call below adds no line.
+const logged = []
+const realConsoleError = console.error
+console.error = (...args) => logged.push(args.join(' '))
+
+const retired = async () => jsonResponse({
+  activity: { cost: '0.00000', models: [] },
+  limits: {
+    session: { usage: 0.259, models: [{ name: 'deepseek-v4.1-flash', request_count: 505 }] },
+    weekly: { usage: 0.057, models: [] },
+  },
+})
+globalThis.fetch = retired
+check('the retired /api/usage limits shape is reported, not swallowed', (await call('usage/read', {})).value, { status: 'unrecognised' })
+check('an identical unreadable shape stays reported', (await call('usage/read', {})).value, { status: 'unrecognised' })
+
+globalThis.fetch = async () => jsonResponse({
+  range: '7d',
+  scope: 'self',
+  granularity: 'day',
+  from: '2026-10-05T00:00:00Z',
+  until: '2026-10-12T00:00:00Z',
+  totals: { request_count: 1012 },
+  buckets: [{ from: '2026-10-05T00:00:00Z', until: '2026-10-06T00:00:00Z', request_count: 352 }],
+})
+check('the documented /api/usage volume shape is reported too', (await call('usage/read', {})).value, { status: 'unrecognised' })
 
 globalThis.fetch = async () => new Response('<html>nope</html>', { status: 200 })
-check('usage/read on a non-JSON body', (await call('usage/read', {})).value, { status: 'none' })
+check('a 200 that is not JSON at all is reported', (await call('usage/read', {})).value, { status: 'unrecognised' })
+check('three distinct shapes, three log lines — the repeat above added none',
+  logged.filter((line) => line.includes('unrecognised')).length, 3)
+check('the log names top-level keys only, never a value',
+  [logged.some((line) => line.includes('activity,limits')),
+    logged.some((line) => /deepseek-v4\.1-flash|0\.259|505/.test(line))], [true, false])
+
+// R7's refusal paths: a payload that would divide by zero or index past the bar must be refused,
+// not clamped into a confident-looking number.
+globalThis.fetch = async () => jsonResponse({ included: { balance_usd: 1, allowance_usd: 0 } })
+check('a credit allowance of zero is refused instead of divided by',
+  (await call('usage/read', {})).value, { status: 'unrecognised' })
+
+globalThis.fetch = async () => jsonResponse({ included: { session: { remaining_percent: -1 }, weekly: { remaining_percent: 101 } } })
+check('an out-of-range percentage is refused instead of clamped in',
+  (await call('usage/read', {})).value, { status: 'unrecognised' })
+
+console.error = realConsoleError
 globalThis.fetch = realFetch
 
 const unknown = await call('nope/nope', {})

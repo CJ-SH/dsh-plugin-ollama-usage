@@ -61,13 +61,25 @@
 
 ### 取数口径
 
-`GET {baseURL}/api/usage` + `Authorization: Bearer <key>`。`baseURL` 填 `https://ollama.com` 或
+`GET {baseURL}/api/balance` + `Authorization: Bearer <key>`。`baseURL` 填 `https://ollama.com` 或
 `https://ollama.com/api` 都可以（原生 API base 以 `/api` 结尾，代码会补齐）。
 
-端点 404 → 视作「该端点不提供用量」，静默；非 2xx / JSON 非法 / 未配置凭据 → 同样静默（不渲染、不报错）。
+**2026-10 上游改版**：旧口径（`GET /api/usage` 的 `limits.session/weekly.{usage,models}`）已消失。
+`/api/usage` 现在只按天桶给 `request_count`/`usage_usd`/token 计数，**per-model 明细没有任何继任端点**：
+官方 OpenAPI 的 15 条路径里账号数据面只有 `/api/usage` 与 `/api/balance`，且参数白名单只有
+`range`/`scope`。配额百分比搬到了 `/api/balance`，其 `included` 是 union：
 
-响应目前只带 `session`（5 小时滚动）与 `weekly`，且**不含任何重置时间戳**，因此面板显示滚动口径
-（「每 5 小时重置 / 每 7 天重置 / 每 30 天重置」）；若端点将来返回 `resets_at`，代码会自动改显示绝对时间。
+| 分支 | 形状 | 映射 |
+|---|---|---|
+| 旧套餐（legacy） | `{session:{remaining_percent,resets_at}, weekly:{…}}` | 两个窗口：**已用** % `= 100 - remaining_percent` |
+| 额度制（credit） | `{balance_usd, allowance_usd, period:{from,until}}` | 映射为 `monthly` 窗口：已用 % `= (allowance - balance) / allowance`，重置取 `period.until` |
+
+百分比一律先钳制到 0..1，再按 1e-6 取整（`(100-96.01)/100` 的二进制浮点噪声不进 UI，也不进断言）。
+
+状态口径：404 → `unsupported` 静默；非 2xx / 网络失败 / 未配置凭据 → `none` 静默；
+**HTTP 200 但载荷解不出（含 200 非 JSON）→ `unrecognised`** —— 设置卡片显示「端点返回了无法识别的
+用量格式」，Host 端按顶层键签名去重记一行日志。这一条正是 2026-10 事故的补丁：旧代码把那类情况
+一并归入静默 `none`，于是插件无声失效了一个月。
 
 ### 路由与信任栅栏
 
@@ -134,8 +146,13 @@ dsh plugin --profile web remove dsh-plugin-ollama-usage
 ### 故障排查
 
 **面板完全不显示。** 依次排查：凭据不可用（凭据模式的 `apiKeyEnv` 未配置，或密钥模式的引用为空）；
-`GET {baseURL}/api/usage` 返回 404 或非 2xx；`baseURL` 填错；dsh 升级移动了席位。
+`GET {baseURL}/api/balance` 返回 404 或非 2xx；`baseURL` 填错；dsh 升级移动了席位。
 面板不显示占位符、也不报错 —— **不显示本身就是失败模式**。
+
+**上游又改版了。** 症状：胶囊与 hero 行不显示，但设置 →「Ollama 用量」卡片的状态行写着
+「端点返回了无法识别的用量格式」，启动日志里有一行
+`[ollama-usage] unrecognised /api/balance payload (top-level keys: …)`（按键名签名去重，每种形状只记一次，
+5 分钟轮询不会刷屏）。此时照键名改 `parseBalance` 的分支，并补一条反假绿断言 —— 不要再让形状失配退回静默。
 
 **整行没激活（插件整个不存在）。** dsh 只会把原因写进启动日志：`1 entry did not activate` /
 `TypeError` / `ERR_MODULE_NOT_FOUND`。先看 peer 是否解析得了（`npm run link-imports`），
@@ -149,14 +166,15 @@ dsh plugin --profile web remove dsh-plugin-ollama-usage
 ## 内部结构
 
 ```
-lib/index.js    Host 半：Config 声明、凭据 seam、/usage 取数、自有的 /ollama-usage 路由
+lib/index.js    Host 半：Config 声明、凭据 seam、/balance 取数、自有的 /ollama-usage 路由
 lib/client.js   Client 半：三处 UI（module-loader bundle 形式，仅依赖基线 react）
 locale/{zh,en}.json  插件卡片/清单的显示文案（{"meta":{"title","description"}}）
 icon.svg       清单里的图标（`package.json` 顶层 `icon`）
 tools/link-imports.mjs  `link:` 安装时把 schemastery 链进包内（见安装一节）
-test/host.test.mjs    自检：Config 契约、写路径、栅栏/方法/媒体类型/请求体、信封、凭据边界、空态（71 条断言）
+test/host.test.mjs    自检：Config 契约、写路径、栅栏/方法/媒体类型/请求体、信封、凭据边界、
+                      空态与 unrecognised 上报（82 条断言）
 test/client.test.mjs  自检：席位、样式生命周期、"无测量"、面板锚点、无死类名、跨半边契约（41 条断言）
-test/card.test.mjs    自检：设置卡片（10 条断言）
+test/card.test.mjs    自检：设置卡片，含 unrecognised 状态文案（11 条断言）
 test/hero.test.mjs    自检：hero 行（6 条断言）
 cordis.patch.yml  安装时合入 profile 的 loader 行（不覆盖任何别的行）
 ```
@@ -167,7 +185,7 @@ cordis.patch.yml  安装时合入 profile 的 loader 行（不覆盖任何别的
 ## 开发与验证
 
 ```bash
-npm test        # 四个 harness，共 128 条断言，无需测试框架
+npm test        # 四个 harness，共 140 条断言，无需测试框架
 ```
 
 - **host.test.mjs**：用假 cordis ctx 挂载 Host 半并断言行为 —— **Config 契约**（默认值、
@@ -176,7 +194,10 @@ npm test        # 四个 harness，共 128 条断言，无需测试框架
   非法 patch 不落盘）、**栅栏最先**（401/403 逐字回写、缺 seam 时 503 fail-closed）与方法/媒体类型/
   请求体校验（405/415/400）、`config/read` 信封与端点推导（含脏值归一化与
   "describe 失败时回落到 row 层"）、**凭据写入边界**（凭据模式零写入、密钥模式只写
-  `OLLAMA_USAGE_API_KEY`）、四类空态（无凭据服务 / 未配置 / 404 / 非 JSON）、错误信息不含密钥。
+  `OLLAMA_USAGE_API_KEY`）、空态（无凭据服务 / 未配置 / 404 / 非 2xx）、错误信息不含密钥，
+  以及**反假绿核心**：`/api/balance` 的 legacy 与 credit 两个分支各解出预期百分比与重置时间，
+  而**旧 `limits` 形状、新 `/api/usage` 桶形状、200 非 JSON 三种都必须是 `unrecognised`**
+  （旧的静默 `none` 正是这次事故藏身之处），日志只带顶层键名不带值、同形状重复只记一行日志，以及 R7 的拒绝路径（allowance=0、百分比越界）同样落到 `unrecognised`。
   另有两类**反假绿**守卫：源码（去注释后）里不得再出现 `settings.register` / `installSection`，
   且清单的 peer 区间必须真的匹配运行时——0.2 会**拒绝**区间不满足的 row，而"不声明"则静默放行。
 - **client.test.mjs**：通过假 `window.__ModuleLoader__` 加载真实 bundle 并挂载到假 ctx —— 断言
